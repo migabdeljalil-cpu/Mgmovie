@@ -130,8 +130,8 @@ jobs:
           data class Film(val id: String, val title: String, val desc: String, val url: String)
 
           val films = listOf(
-              Film("1", "الأرنب الكبير", "فيلم رسوم متحركة قصير",
-                  "https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"),
+              Film("1", "فيديو تجريبي", "أول فيديو من ImageKit",
+             "https://ik.imagekit.io/8ceh10zgz/20261018_182128.mp4"),
               Film("2", "حلم الفيلة", "رحلة غريبة في عالم من الآلات",
                   "https://storage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4"),
               Film("3", "لهب", "مقطع قصير مليء بالحركة",
