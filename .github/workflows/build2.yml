@@ -1,0 +1,263 @@
+name: Build APK
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
+      - name: Create project files
+        run: |
+          mkdir -p proj/app/src/main/java/com/example/shortfilms
+          cd proj
+          cat > settings.gradle.kts <<'FILE_END'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "ShortFilms"
+          include(":app")
+          FILE_END
+          cat > build.gradle.kts <<'FILE_END'
+          plugins {
+              id("com.android.application") version "8.5.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+          }
+          FILE_END
+          cat > gradle.properties <<'FILE_END'
+          org.gradle.jvmargs=-Xmx2048m
+          android.useAndroidX=true
+          FILE_END
+          cat > app/build.gradle.kts <<'FILE_END'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+          android {
+              namespace = "com.example.shortfilms"
+              compileSdk = 34
+              defaultConfig {
+                  applicationId = "com.example.shortfilms"
+                  minSdk = 24
+                  targetSdk = 34
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions { jvmTarget = "17" }
+              buildFeatures { compose = true }
+              composeOptions { kotlinCompilerExtensionVersion = "1.5.14" }
+          }
+          dependencies {
+              implementation(platform("androidx.compose:compose-bom:2024.10.01"))
+              implementation("androidx.compose.ui:ui")
+              implementation("androidx.compose.foundation:foundation")
+              implementation("androidx.compose.material3:material3")
+              implementation("androidx.compose.material:material-icons-extended")
+              implementation("androidx.activity:activity-compose:1.9.2")
+              implementation("androidx.media3:media3-exoplayer:1.4.1")
+              implementation("androidx.media3:media3-ui:1.4.1")
+          }
+          FILE_END
+          cat > app/src/main/AndroidManifest.xml <<'FILE_END'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <application
+                  android:label="أفلام قصيرة"
+                  android:icon="@android:drawable/ic_media_play"
+                  android:supportsRtl="true"
+                  android:theme="@android:style/Theme.Material.NoActionBar">
+                  <activity android:name=".MainActivity" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          FILE_END
+          cat > app/src/main/java/com/example/shortfilms/MainActivity.kt <<'FILE_END'
+          package com.example.shortfilms
+
+          import android.content.Intent
+          import android.os.Bundle
+          import androidx.activity.ComponentActivity
+          import androidx.activity.compose.setContent
+          import androidx.activity.enableEdgeToEdge
+          import androidx.compose.foundation.*
+          import androidx.compose.foundation.interaction.MutableInteractionSource
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.pager.*
+          import androidx.compose.material.icons.Icons
+          import androidx.compose.material.icons.filled.*
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.*
+          import androidx.compose.ui.graphics.*
+          import androidx.compose.ui.graphics.vector.ImageVector
+          import androidx.compose.ui.platform.*
+          import androidx.compose.ui.text.font.FontWeight
+          import androidx.compose.ui.unit.*
+          import androidx.compose.ui.viewinterop.AndroidView
+          import androidx.lifecycle.Lifecycle
+          import androidx.lifecycle.LifecycleEventObserver
+          import androidx.media3.common.MediaItem
+          import androidx.media3.common.Player
+          import androidx.media3.exoplayer.ExoPlayer
+          import androidx.media3.ui.AspectRatioFrameLayout
+          import androidx.media3.ui.PlayerView
+
+          data class Film(val id: String, val title: String, val desc: String, val url: String)
+
+          val films = listOf(
+              Film("1", "الأرنب الكبير", "فيلم رسوم متحركة قصير",
+                  "https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"),
+              Film("2", "حلم الفيلة", "رحلة غريبة في عالم من الآلات",
+                  "https://storage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4"),
+              Film("3", "لهب", "مقطع قصير مليء بالحركة",
+                  "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4")
+          )
+
+          class MainActivity : ComponentActivity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  enableEdgeToEdge()
+                  setContent {
+                      MaterialTheme(colorScheme = darkColorScheme()) { ShortsApp() }
+                  }
+              }
+          }
+
+          @OptIn(ExperimentalFoundationApi::class)
+          @Composable
+          fun ShortsApp() {
+              val context = LocalContext.current
+              val prefs = remember { context.getSharedPreferences("sf", 0) }
+              var liked by remember { mutableStateOf<Set<String>>(prefs.getStringSet("liked", null) ?: emptySet()) }
+              var saved by remember { mutableStateOf<Set<String>>(prefs.getStringSet("saved", null) ?: emptySet()) }
+              val pagerState = rememberPagerState { films.size }
+              val player = remember {
+                  ExoPlayer.Builder(context).build().apply {
+                      repeatMode = Player.REPEAT_MODE_ONE
+                      playWhenReady = true
+                  }
+              }
+              val owner = LocalLifecycleOwner.current
+              DisposableEffect(owner) {
+                  val obs = LifecycleEventObserver { _, e ->
+                      if (e == Lifecycle.Event.ON_PAUSE) player.pause()
+                      if (e == Lifecycle.Event.ON_RESUME) player.play()
+                  }
+                  owner.lifecycle.addObserver(obs)
+                  onDispose {
+                      owner.lifecycle.removeObserver(obs)
+                      player.release()
+                  }
+              }
+              LaunchedEffect(pagerState.settledPage) {
+                  player.setMediaItem(MediaItem.fromUri(films[pagerState.settledPage].url))
+                  player.prepare()
+                  player.play()
+              }
+              VerticalPager(state = pagerState, modifier = Modifier.fillMaxSize().background(Color.Black)) { page ->
+                  val film = films[page]
+                  val isLiked = film.id in liked
+                  val isSaved = film.id in saved
+                  Box(Modifier.fillMaxSize()) {
+                      if (page == pagerState.settledPage) {
+                          AndroidView(
+                              factory = { ctx ->
+                                  PlayerView(ctx).apply {
+                                      this.player = player
+                                      useController = false
+                                      resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                  }
+                              },
+                              modifier = Modifier.fillMaxSize().clickable(
+                                  interactionSource = remember { MutableInteractionSource() },
+                                  indication = null
+                              ) { if (player.isPlaying) player.pause() else player.play() }
+                          )
+                      }
+                      Box(
+                          Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(260.dp)
+                              .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xCC000000))))
+                      )
+                      Column(
+                          Modifier.align(Alignment.BottomStart).navigationBarsPadding()
+                              .padding(start = 16.dp, end = 96.dp, bottom = 24.dp)
+                      ) {
+                          Text(film.title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                          Text(film.desc, color = Color(0xCCFFFFFF), fontSize = 14.sp)
+                      }
+                      Column(
+                          Modifier.align(Alignment.BottomEnd).navigationBarsPadding()
+                              .padding(end = 8.dp, bottom = 24.dp),
+                          horizontalAlignment = Alignment.CenterHorizontally
+                      ) {
+                          ActionButton(
+                              if (isLiked) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                              "إعجاب",
+                              if (isLiked) Color(0xFFFF4D6D) else Color.White
+                          ) {
+                              liked = if (isLiked) liked - film.id else liked + film.id
+                              prefs.edit().putStringSet("liked", liked).apply()
+                          }
+                          ActionButton(
+                              if (isSaved) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
+                              "حفظ",
+                              if (isSaved) Color(0xFFFFC53D) else Color.White
+                          ) {
+                              saved = if (isSaved) saved - film.id else saved + film.id
+                              prefs.edit().putStringSet("saved", saved).apply()
+                          }
+                          ActionButton(Icons.Filled.Share, "مشاركة", Color.White) {
+                              val send = Intent(Intent.ACTION_SEND).apply {
+                                  type = "text/plain"
+                                  putExtra(Intent.EXTRA_TEXT, film.title + "\n" + film.url)
+                              }
+                              context.startActivity(Intent.createChooser(send, "مشاركة الفيلم"))
+                          }
+                      }
+                  }
+              }
+          }
+
+          @Composable
+          fun ActionButton(icon: ImageVector, label: String, tint: Color, onClick: () -> Unit) {
+              Column(
+                  horizontalAlignment = Alignment.CenterHorizontally,
+                  modifier = Modifier.clickable(onClick = onClick).padding(8.dp)
+              ) {
+                  Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(34.dp))
+                  Text(label, color = Color.White, fontSize = 12.sp)
+              }
+          }
+          FILE_END
+      - name: Build APK
+        working-directory: proj
+        run: gradle assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ShortFilms-APK
+          path: proj/app/build/outputs/apk/debug/*.apk
