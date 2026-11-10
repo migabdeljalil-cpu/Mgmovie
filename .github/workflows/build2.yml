@@ -18,33 +18,6 @@ jobs:
         run: |
           mkdir -p proj/app/src/main/java/com/example/shortfilms
           cd proj
-          cat > settings.gradle.kts <<'FILE_END'
-          pluginManagement {
-              repositories {
-                  google()
-                  mavenCentral()
-                  gradlePluginPortal()
-              }
-          }
-          dependencyResolutionManagement {
-              repositories {
-                  google()
-                  mavenCentral()
-              }
-          }
-          rootProject.name = "ShortFilms"
-          include(":app")
-          FILE_END
-          cat > build.gradle.kts <<'FILE_END'
-          plugins {
-              id("com.android.application") version "8.5.2" apply false
-              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
-          }
-          FILE_END
-          cat > gradle.properties <<'FILE_END'
-          org.gradle.jvmargs=-Xmx2048m
-          android.useAndroidX=true
-          FILE_END
           cat > app/build.gradle.kts <<'FILE_END'
           plugins {
               id("com.android.application")
@@ -57,8 +30,8 @@ jobs:
                   applicationId = "com.example.shortfilms"
                   minSdk = 24
                   targetSdk = 34
-                  versionCode = 1
-                  versionName = "1.0"
+                  versionCode = 2
+                  versionName = "2.0"
               }
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
@@ -77,16 +50,22 @@ jobs:
               implementation("androidx.activity:activity-compose:1.9.2")
               implementation("androidx.media3:media3-exoplayer:1.4.1")
               implementation("androidx.media3:media3-ui:1.4.1")
+              implementation("io.coil-kt:coil-compose:2.7.0")
+              implementation("com.google.android.gms:play-services-ads:23.3.0")
           }
           FILE_END
           cat > app/src/main/AndroidManifest.xml <<'FILE_END'
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
               <application
                   android:label="أفلام قصيرة"
                   android:icon="@android:drawable/ic_media_play"
                   android:supportsRtl="true"
                   android:theme="@android:style/Theme.Material.NoActionBar">
+                  <meta-data
+                      android:name="com.google.android.gms.ads.APPLICATION_ID"
+                      android:value="ca-app-pub-3940256099942544~3347511713" />
                   <activity android:name=".MainActivity" android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
@@ -99,25 +78,67 @@ jobs:
           cat > app/src/main/java/com/example/shortfilms/MainActivity.kt <<'FILE_END'
           package com.example.shortfilms
 
-          import android.content.Intent
+          import android.app.Activity
+          import android.content.Context
           import android.os.Bundle
+          import android.widget.Toast
           import androidx.activity.ComponentActivity
+          import androidx.activity.compose.BackHandler
           import androidx.activity.compose.setContent
           import androidx.activity.enableEdgeToEdge
-          import androidx.compose.foundation.*
-          import androidx.compose.foundation.interaction.MutableInteractionSource
-          import androidx.compose.foundation.layout.*
-          import androidx.compose.foundation.pager.*
+          import androidx.compose.foundation.background
+          import androidx.compose.foundation.clickable
+          import androidx.compose.foundation.layout.Arrangement
+          import androidx.compose.foundation.layout.Box
+          import androidx.compose.foundation.layout.Column
+          import androidx.compose.foundation.layout.PaddingValues
+          import androidx.compose.foundation.layout.Row
+          import androidx.compose.foundation.layout.Spacer
+          import androidx.compose.foundation.layout.aspectRatio
+          import androidx.compose.foundation.layout.fillMaxSize
+          import androidx.compose.foundation.layout.fillMaxWidth
+          import androidx.compose.foundation.layout.height
+          import androidx.compose.foundation.layout.padding
+          import androidx.compose.foundation.layout.statusBarsPadding
+          import androidx.compose.foundation.lazy.LazyColumn
+          import androidx.compose.foundation.lazy.grid.GridCells
+          import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+          import androidx.compose.foundation.lazy.grid.items
+          import androidx.compose.foundation.lazy.items
+          import androidx.compose.foundation.shape.RoundedCornerShape
           import androidx.compose.material.icons.Icons
-          import androidx.compose.material.icons.filled.*
-          import androidx.compose.material3.*
-          import androidx.compose.runtime.*
-          import androidx.compose.ui.*
-          import androidx.compose.ui.graphics.*
-          import androidx.compose.ui.graphics.vector.ImageVector
-          import androidx.compose.ui.platform.*
+          import androidx.compose.material.icons.automirrored.filled.ArrowBack
+          import androidx.compose.material.icons.filled.CheckCircle
+          import androidx.compose.material.icons.filled.Lock
+          import androidx.compose.material.icons.filled.PlayArrow
+          import androidx.compose.material3.Button
+          import androidx.compose.material3.CircularProgressIndicator
+          import androidx.compose.material3.Icon
+          import androidx.compose.material3.IconButton
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.material3.Surface
+          import androidx.compose.material3.Text
+          import androidx.compose.material3.darkColorScheme
+          import androidx.compose.runtime.Composable
+          import androidx.compose.runtime.DisposableEffect
+          import androidx.compose.runtime.LaunchedEffect
+          import androidx.compose.runtime.getValue
+          import androidx.compose.runtime.mutableIntStateOf
+          import androidx.compose.runtime.mutableStateOf
+          import androidx.compose.runtime.remember
+          import androidx.compose.runtime.rememberUpdatedState
+          import androidx.compose.runtime.setValue
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.draw.clip
+          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.layout.ContentScale
+          import androidx.compose.ui.platform.LocalContext
+          import androidx.compose.ui.platform.LocalLifecycleOwner
           import androidx.compose.ui.text.font.FontWeight
-          import androidx.compose.ui.unit.*
+          import androidx.compose.ui.text.style.TextAlign
+          import androidx.compose.ui.unit.dp
+          import androidx.compose.ui.unit.sp
           import androidx.compose.ui.viewinterop.AndroidView
           import androidx.lifecycle.Lifecycle
           import androidx.lifecycle.LifecycleEventObserver
@@ -126,133 +147,380 @@ jobs:
           import androidx.media3.exoplayer.ExoPlayer
           import androidx.media3.ui.AspectRatioFrameLayout
           import androidx.media3.ui.PlayerView
+          import coil.compose.AsyncImage
+          import com.google.android.gms.ads.AdError
+          import com.google.android.gms.ads.AdRequest
+          import com.google.android.gms.ads.FullScreenContentCallback
+          import com.google.android.gms.ads.LoadAdError
+          import com.google.android.gms.ads.MobileAds
+          import com.google.android.gms.ads.interstitial.InterstitialAd
+          import com.google.android.gms.ads.interstitial.InterstitialAdLoadCallback
+          import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.withContext
+          import org.json.JSONObject
+          import java.net.URL
 
-          data class Film(val id: String, val title: String, val desc: String, val url: String)
+          // رابط ملف المسلسلات على GitHub
+          const val DATA_URL = "https://raw.githubusercontent.com/migabdeljalil-cpu/Mgmovie/main/series.json"
 
-          val films = listOf(
-              Film("1", "فيديو تجريبي", "أول فيديو من ImageKit",
-             "https://ik.imagekit.io/8ceh10zgz/20261018_182128.mp4"),
-              Film("2", "حلم الفيلة", "رحلة غريبة في عالم من الآلات",
-                  "https://storage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4"),
-              Film("3", "لهب", "مقطع قصير مليء بالحركة",
-                  "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4")
+          data class Episode(val number: Int, val title: String, val video: String)
+
+          data class Series(
+              val id: String,
+              val name: String,
+              val cover: String,
+              val description: String,
+              val episodes: List<Episode>
           )
+
+          suspend fun loadSeries(): List<Series> = withContext(Dispatchers.IO) {
+              val text = URL(DATA_URL).readText()
+              val arr = JSONObject(text).getJSONArray("series")
+              (0 until arr.length()).map { i ->
+                  val s = arr.getJSONObject(i)
+                  val eps = s.getJSONArray("episodes")
+                  Series(
+                      id = s.getString("id"),
+                      name = s.getString("name"),
+                      cover = s.optString("cover"),
+                      description = s.optString("description"),
+                      episodes = (0 until eps.length()).map { j ->
+                          val e = eps.getJSONObject(j)
+                          val n = e.getInt("number")
+                          Episode(n, e.optString("title", "الحلقة " + n), e.getString("video"))
+                      }
+                  )
+              }
+          }
+
+          // الإعلان يظهر قبل الحلقات 4 و 7 و 10 و 13 ...
+          fun needsAd(n: Int): Boolean = n >= 4 && (n - 1) % 3 == 0
+
+          fun unlockedCount(prefs: android.content.SharedPreferences, id: String): Int =
+              prefs.getInt("p_" + id, 1)
+
+          fun markWatched(prefs: android.content.SharedPreferences, id: String, n: Int) {
+              if (n >= unlockedCount(prefs, id)) {
+                  prefs.edit().putInt("p_" + id, n + 1).apply()
+              }
+          }
+
+          class AdHelper(private val activity: Activity) {
+              private var ad: InterstitialAd? = null
+
+              fun load() {
+                  InterstitialAd.load(
+                      activity,
+                      "ca-app-pub-3940256099942544/1033173712",
+                      AdRequest.Builder().build(),
+                      object : InterstitialAdLoadCallback() {
+                          override fun onAdLoaded(a: InterstitialAd) {
+                              ad = a
+                          }
+
+                          override fun onAdFailedToLoad(e: LoadAdError) {
+                              ad = null
+                          }
+                      }
+                  )
+              }
+
+              fun show(onDone: () -> Unit) {
+                  val a = ad
+                  if (a == null) {
+                      load()
+                      onDone()
+                      return
+                  }
+                  ad = null
+                  a.fullScreenContentCallback = object : FullScreenContentCallback() {
+                      override fun onAdDismissedFullScreenContent() {
+                          load()
+                          onDone()
+                      }
+
+                      override fun onAdFailedToShowFullScreenContent(e: AdError) {
+                          load()
+                          onDone()
+                      }
+                  }
+                  a.show(activity)
+              }
+          }
 
           class MainActivity : ComponentActivity() {
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
                   enableEdgeToEdge()
+                  MobileAds.initialize(this) {}
+                  val ads = AdHelper(this)
+                  ads.load()
                   setContent {
-                      MaterialTheme(colorScheme = darkColorScheme()) { ShortsApp() }
+                      MaterialTheme(colorScheme = darkColorScheme()) {
+                          Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                              App(ads)
+                          }
+                      }
                   }
               }
           }
 
-          @OptIn(ExperimentalFoundationApi::class)
           @Composable
-          fun ShortsApp() {
+          fun App(ads: AdHelper) {
               val context = LocalContext.current
-              val prefs = remember { context.getSharedPreferences("sf", 0) }
-              var liked by remember { mutableStateOf<Set<String>>(prefs.getStringSet("liked", null) ?: emptySet()) }
-              var saved by remember { mutableStateOf<Set<String>>(prefs.getStringSet("saved", null) ?: emptySet()) }
-              val pagerState = rememberPagerState { films.size }
-              val player = remember {
+              val prefs = remember { context.getSharedPreferences("sf2", Context.MODE_PRIVATE) }
+              var series by remember { mutableStateOf<List<Series>?>(null) }
+              var error by remember { mutableStateOf(false) }
+              var reload by remember { mutableIntStateOf(0) }
+              var selected by remember { mutableStateOf<Series?>(null) }
+              var playing by remember { mutableStateOf<Episode?>(null) }
+              var tick by remember { mutableIntStateOf(0) }
+
+              LaunchedEffect(reload) {
+                  error = false
+                  try {
+                      series = loadSeries()
+                  } catch (e: Exception) {
+                      error = true
+                  }
+              }
+
+              BackHandler(enabled = selected != null || playing != null) {
+                  if (playing != null) playing = null else selected = null
+              }
+
+              val sel = selected
+              val play = playing
+              val list = series
+
+              if (sel != null && play != null) {
+                  PlayerScreen(
+                      episode = play,
+                      onEnded = {
+                          markWatched(prefs, sel.id, play.number)
+                          tick++
+                          playing = null
+                      },
+                      onBack = { playing = null }
+                  )
+              } else if (sel != null) {
+                  val unlocked = unlockedCount(prefs, sel.id) + tick * 0
+                  SeriesScreen(
+                      series = sel,
+                      unlocked = unlocked,
+                      onBack = { selected = null },
+                      onEpisode = { ep ->
+                          if (ep.number > unlocked) {
+                              Toast.makeText(context, "شاهد الحلقة السابقة أولاً", Toast.LENGTH_SHORT).show()
+                          } else if (needsAd(ep.number)) {
+                              ads.show { playing = ep }
+                          } else {
+                              playing = ep
+                          }
+                      }
+                  )
+              } else {
+                  HomeScreen(
+                      series = list,
+                      error = error,
+                      onRetry = { reload++ },
+                      onSeries = { selected = it }
+                  )
+              }
+          }
+
+          @Composable
+          fun HomeScreen(series: List<Series>?, error: Boolean, onRetry: () -> Unit, onSeries: (Series) -> Unit) {
+              Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
+                  Text(
+                      "المسلسلات",
+                      fontSize = 26.sp,
+                      fontWeight = FontWeight.Bold,
+                      modifier = Modifier.padding(16.dp)
+                  )
+                  if (error) {
+                      Column(
+                          modifier = Modifier.fillMaxSize(),
+                          verticalArrangement = Arrangement.Center,
+                          horizontalAlignment = Alignment.CenterHorizontally
+                      ) {
+                          Text("تعذر تحميل المسلسلات. تأكد من الإنترنت.")
+                          Spacer(Modifier.height(12.dp))
+                          Button(onClick = onRetry) { Text("إعادة المحاولة") }
+                      }
+                  } else if (series == null) {
+                      Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                          CircularProgressIndicator()
+                      }
+                  } else {
+                      LazyVerticalGrid(
+                          columns = GridCells.Fixed(2),
+                          contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp),
+                          horizontalArrangement = Arrangement.spacedBy(12.dp),
+                          verticalArrangement = Arrangement.spacedBy(16.dp)
+                      ) {
+                          items(series) { s ->
+                              Column(modifier = Modifier.clickable { onSeries(s) }) {
+                                  AsyncImage(
+                                      model = s.cover,
+                                      contentDescription = s.name,
+                                      contentScale = ContentScale.Crop,
+                                      modifier = Modifier
+                                          .fillMaxWidth()
+                                          .aspectRatio(0.7f)
+                                          .clip(RoundedCornerShape(12.dp))
+                                          .background(Color(0xFF2A2A2A))
+                                  )
+                                  Text(
+                                      s.name,
+                                      fontWeight = FontWeight.Bold,
+                                      modifier = Modifier.padding(top = 6.dp)
+                                  )
+                              }
+                          }
+                      }
+                  }
+              }
+          }
+
+          @Composable
+          fun SeriesScreen(series: Series, unlocked: Int, onBack: () -> Unit, onEpisode: (Episode) -> Unit) {
+              Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
+                  Row(verticalAlignment = Alignment.CenterVertically) {
+                      IconButton(onClick = onBack) {
+                          Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع")
+                      }
+                      Text(series.name, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                  }
+                  LazyColumn(
+                      contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp),
+                      verticalArrangement = Arrangement.spacedBy(10.dp)
+                  ) {
+                      item {
+                          Column {
+                              AsyncImage(
+                                  model = series.cover,
+                                  contentDescription = series.name,
+                                  contentScale = ContentScale.Crop,
+                                  modifier = Modifier
+                                      .fillMaxWidth()
+                                      .height(200.dp)
+                                      .clip(RoundedCornerShape(12.dp))
+                                      .background(Color(0xFF2A2A2A))
+                              )
+                              Text(series.description, modifier = Modifier.padding(vertical = 12.dp))
+                          }
+                      }
+                      items(series.episodes) { ep ->
+                          val locked = ep.number > unlocked
+                          val done = ep.number < unlocked
+                          Row(
+                              modifier = Modifier
+                                  .fillMaxWidth()
+                                  .clip(RoundedCornerShape(12.dp))
+                                  .background(Color(0xFF26262B))
+                                  .clickable { onEpisode(ep) }
+                                  .padding(16.dp),
+                              verticalAlignment = Alignment.CenterVertically
+                          ) {
+                              Column(modifier = Modifier.weight(1f)) {
+                                  Text(
+                                      ep.title,
+                                      fontWeight = FontWeight.Bold,
+                                      color = if (locked) Color.Gray else Color.White
+                                  )
+                                  if (needsAd(ep.number)) {
+                                      Text("يسبقها إعلان", fontSize = 12.sp, color = Color.Gray)
+                                  }
+                              }
+                              if (locked) {
+                                  Icon(Icons.Filled.Lock, contentDescription = "مقفلة", tint = Color.Gray)
+                              } else if (done) {
+                                  Icon(Icons.Filled.CheckCircle, contentDescription = "تمت", tint = Color(0xFF4CAF50))
+                              } else {
+                                  Icon(Icons.Filled.PlayArrow, contentDescription = "تشغيل", tint = Color.White)
+                              }
+                          }
+                      }
+                  }
+              }
+          }
+
+          @Composable
+          fun PlayerScreen(episode: Episode, onEnded: () -> Unit, onBack: () -> Unit) {
+              val context = LocalContext.current
+              val endedCallback by rememberUpdatedState(onEnded)
+              val player = remember(episode.video) {
                   ExoPlayer.Builder(context).build().apply {
-                      repeatMode = Player.REPEAT_MODE_ONE
+                      setMediaItem(MediaItem.fromUri(episode.video))
                       playWhenReady = true
+                      prepare()
                   }
               }
               val owner = LocalLifecycleOwner.current
-              DisposableEffect(owner) {
-                  val obs = LifecycleEventObserver { _, e ->
-                      if (e == Lifecycle.Event.ON_PAUSE) player.pause()
-                      if (e == Lifecycle.Event.ON_RESUME) player.play()
+              DisposableEffect(player) {
+                  val listener = object : Player.Listener {
+                      override fun onPlaybackStateChanged(state: Int) {
+                          if (state == Player.STATE_ENDED) endedCallback()
+                      }
                   }
-                  owner.lifecycle.addObserver(obs)
+                  val observer = LifecycleEventObserver { _, e ->
+                      if (e == Lifecycle.Event.ON_PAUSE) player.pause()
+                  }
+                  player.addListener(listener)
+                  owner.lifecycle.addObserver(observer)
                   onDispose {
-                      owner.lifecycle.removeObserver(obs)
+                      owner.lifecycle.removeObserver(observer)
+                      player.removeListener(listener)
                       player.release()
                   }
               }
-              LaunchedEffect(pagerState.settledPage) {
-                  player.setMediaItem(MediaItem.fromUri(films[pagerState.settledPage].url))
-                  player.prepare()
-                  player.play()
-              }
-              VerticalPager(state = pagerState, modifier = Modifier.fillMaxSize().background(Color.Black)) { page ->
-                  val film = films[page]
-                  val isLiked = film.id in liked
-                  val isSaved = film.id in saved
-                  Box(Modifier.fillMaxSize()) {
-                      if (page == pagerState.settledPage) {
-                          AndroidView(
-                              factory = { ctx ->
-                                  PlayerView(ctx).apply {
-                                      this.player = player
-                                      useController = false
-                                      resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                                  }
-                              },
-                              modifier = Modifier.fillMaxSize().clickable(
-                                  interactionSource = remember { MutableInteractionSource() },
-                                  indication = null
-                              ) { if (player.isPlaying) player.pause() else player.play() }
-                          )
-                      }
-                      Box(
-                          Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(260.dp)
-                              .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xCC000000))))
-                      )
-                      Column(
-                          Modifier.align(Alignment.BottomStart).navigationBarsPadding()
-                              .padding(start = 16.dp, end = 96.dp, bottom = 24.dp)
-                      ) {
-                          Text(film.title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                          Text(film.desc, color = Color(0xCCFFFFFF), fontSize = 14.sp)
-                      }
-                      Column(
-                          Modifier.align(Alignment.BottomEnd).navigationBarsPadding()
-                              .padding(end = 8.dp, bottom = 24.dp),
-                          horizontalAlignment = Alignment.CenterHorizontally
-                      ) {
-                          ActionButton(
-                              if (isLiked) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                              "إعجاب",
-                              if (isLiked) Color(0xFFFF4D6D) else Color.White
-                          ) {
-                              liked = if (isLiked) liked - film.id else liked + film.id
-                              prefs.edit().putStringSet("liked", liked).apply()
+              Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+                  AndroidView(
+                      factory = { ctx ->
+                          PlayerView(ctx).apply {
+                              this.player = player
+                              useController = true
+                              resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                           }
-                          ActionButton(
-                              if (isSaved) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
-                              "حفظ",
-                              if (isSaved) Color(0xFFFFC53D) else Color.White
-                          ) {
-                              saved = if (isSaved) saved - film.id else saved + film.id
-                              prefs.edit().putStringSet("saved", saved).apply()
-                          }
-                          ActionButton(Icons.Filled.Share, "مشاركة", Color.White) {
-                              val send = Intent(Intent.ACTION_SEND).apply {
-                                  type = "text/plain"
-                                  putExtra(Intent.EXTRA_TEXT, film.title + "\n" + film.url)
-                              }
-                              context.startActivity(Intent.createChooser(send, "مشاركة الفيلم"))
-                          }
-                      }
+                      },
+                      modifier = Modifier.fillMaxSize()
+                  )
+                  IconButton(
+                      onClick = onBack,
+                      modifier = Modifier.align(Alignment.TopStart).statusBarsPadding()
+                  ) {
+                      Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "رجوع", tint = Color.White)
                   }
               }
           }
-
-          @Composable
-          fun ActionButton(icon: ImageVector, label: String, tint: Color, onClick: () -> Unit) {
-              Column(
-                  horizontalAlignment = Alignment.CenterHorizontally,
-                  modifier = Modifier.clickable(onClick = onClick).padding(8.dp)
-              ) {
-                  Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(34.dp))
-                  Text(label, color = Color.White, fontSize = 12.sp)
+          FILE_END
+          cat > build.gradle.kts <<'FILE_END'
+          plugins {
+              id("com.android.application") version "8.5.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+          }
+          FILE_END
+          cat > gradle.properties <<'FILE_END'
+          org.gradle.jvmargs=-Xmx2048m
+          android.useAndroidX=true
+          FILE_END
+          cat > settings.gradle.kts <<'FILE_END'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
               }
           }
+          dependencyResolutionManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "ShortFilms"
+          include(":app")
           FILE_END
       - name: Build APK
         working-directory: proj
