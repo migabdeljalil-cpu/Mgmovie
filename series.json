@@ -1,0 +1,17 @@
+{
+  "series": [
+    {
+      "id": "s1",
+      "name": "مسلسل تجريبي",
+      "cover": "https://ik.imagekit.io/8ceh10zgz/default-image.jpg",
+      "description": "مسلسل لتجربة القفل والإعلانات.",
+      "episodes": [
+        { "number": 1, "title": "الحلقة 1", "video": "https://ik.imagekit.io/8ceh10zgz/20261018_182128.mp4" },
+        { "number": 2, "title": "الحلقة 2", "video": "https://ik.imagekit.io/8ceh10zgz/20261018_182128.mp4" },
+        { "number": 3, "title": "الحلقة 3", "video": "https://ik.imagekit.io/8ceh10zgz/20261018_182128.mp4" },
+        { "number": 4, "title": "الحلقة 4", "video": "https://ik.imagekit.io/8ceh10zgz/20261018_182128.mp4" },
+        { "number": 5, "title": "الحلقة 5", "video": "https://ik.imagekit.io/8ceh10zgz/20261018_182128.mp4" }
+      ]
+    }
+  ]
+}
